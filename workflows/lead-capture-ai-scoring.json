@@ -1,0 +1,310 @@
+{
+  "name": "Lead Capture & AI Scoring",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Lead Capture & AI Scoring\nA hosted contact form that qualifies every lead in seconds.\n\n- GPT scores the lead 0-100 and returns structured JSON (segment, intent, summary, reply)\n- Contact is upserted in **HubSpot**\n- Hot leads (score >= 70) ping sales in Slack; the rest get a personalised nurture email\n\n**Setup:** OpenAI, HubSpot, Slack and Gmail credentials.",
+        "height": 260,
+        "width": 420,
+        "color": 7
+      },
+      "id": "9d1aa40a-9a57-510e-985f-f5cdbb553a9b",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "formTitle": "Talk to us",
+        "formDescription": "Tell us what you need and we'll get back within a day.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Company",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Team size",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "1-10"
+                  },
+                  {
+                    "option": "11-50"
+                  },
+                  {
+                    "option": "51-200"
+                  },
+                  {
+                    "option": "200+"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "What do you need?",
+              "fieldType": "textarea",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "respondWithOptions": {
+            "values": {
+              "formSubmittedText": "Thanks! We'll be in touch shortly."
+            }
+          }
+        }
+      },
+      "id": "afa5d9c9-2ad7-5968-b854-96e2dd7d8234",
+      "name": "Contact form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "hasOutputParser": true,
+        "text": "=You qualify inbound B2B leads for an AI-automation agency. Score this lead 0-100 on budget signals, urgency, fit and team size.\n\nName: {{ $json.Name }}\nCompany: {{ $json.Company }}\nTeam size: {{ $json['Team size'] }}\nMessage: {{ $json['What do you need?'] }}\n\nAlso write a 3-sentence personal reply that references their need and proposes a next step."
+      },
+      "id": "762ad511-f8cf-535b-aafb-a2ff72e839be",
+      "name": "Score lead",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "id": "d9c2fb7e-4e15-5329-ab31-6d7f4886fc6e",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        185.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"score\": {\n      \"type\": \"number\",\n      \"description\": \"0-100\"\n    },\n    \"segment\": {\n      \"type\": \"string\",\n      \"enum\": [\n        \"enterprise\",\n        \"smb\",\n        \"startup\",\n        \"not_a_fit\"\n      ]\n    },\n    \"intent\": {\n      \"type\": \"string\"\n    },\n    \"summary\": {\n      \"type\": \"string\"\n    },\n    \"reply\": {\n      \"type\": \"string\"\n    }\n  },\n  \"required\": [\n    \"score\",\n    \"segment\",\n    \"intent\",\n    \"summary\",\n    \"reply\"\n  ]\n}"
+      },
+      "id": "cfee83f4-45af-5431-ad7a-ea8da6aeb618",
+      "name": "Lead JSON",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.2,
+      "position": [
+        375.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "appToken",
+        "resource": "contact",
+        "operation": "upsert",
+        "email": "={{ $('Contact form').item.json.Email }}",
+        "additionalFields": {
+          "firstName": "={{ $('Contact form').item.json.Name.split(' ')[0] }}",
+          "companyName": "={{ $('Contact form').item.json.Company }}",
+          "message": "=[AI score {{ $json.output.score }} / {{ $json.output.segment }}] {{ $json.output.summary }}"
+        },
+        "options": {}
+      },
+      "id": "508aa633-7156-5282-9c04-0d779d8adbd0",
+      "name": "Upsert HubSpot contact",
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2.1,
+      "position": [
+        560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0cea67d-6722-51d5-9e16-7fc16b75fbdb",
+              "leftValue": "={{ $('Score lead').item.json.output.score }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              },
+              "rightValue": 70
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e07eb6dc-e59f-52ec-b4a6-920fce702488",
+      "name": "Hot lead?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#sales"
+        },
+        "text": "=:fire: *Hot lead ({{ $('Score lead').item.json.output.score }}/100)* - {{ $('Contact form').item.json.Name }} at {{ $('Contact form').item.json.Company }}\n{{ $('Score lead').item.json.output.summary }}\nReply within the hour: {{ $('Contact form').item.json.Email }}",
+        "otherOptions": {}
+      },
+      "id": "748bcc99-8dbe-5834-85e3-521ee12101c9",
+      "name": "Ping sales on Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Contact form').item.json.Email }}",
+        "subject": "=Thanks for reaching out, {{ $('Contact form').item.json.Name.split(' ')[0] }}",
+        "emailType": "text",
+        "message": "={{ $('Score lead').item.json.output.reply }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "c2ff34c9-f8f2-55df-8589-a3b570f71b1e",
+      "name": "Send nurture email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1120,
+        360
+      ]
+    }
+  ],
+  "connections": {
+    "Contact form": {
+      "main": [
+        [
+          {
+            "node": "Score lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score lead": {
+      "main": [
+        [
+          {
+            "node": "Upsert HubSpot contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert HubSpot contact": {
+      "main": [
+        [
+          {
+            "node": "Hot lead?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hot lead?": {
+      "main": [
+        [
+          {
+            "node": "Ping sales on Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send nurture email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Score lead",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead JSON": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Score lead",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

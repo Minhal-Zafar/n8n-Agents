@@ -1,0 +1,347 @@
+{
+  "name": "Voice Agent Appointment Booking (Retell AI)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Voice Agent Appointment Booking\nBackend for a **Retell AI** phone agent. Three webhooks:\n\n- `check-availability` - returns free 30-min slots for a day from Google Calendar\n- `book-appointment` - books the slot and emails a confirmation\n- `call-ended` - logs every analysed call (summary, sentiment) to Google Sheets\n\n**Setup:** add the two function URLs as custom functions in Retell; Google Calendar, Gmail and Sheets credentials.",
+        "height": 260,
+        "width": 420,
+        "color": 7
+      },
+      "id": "320cc0c4-6d9b-5e77-8a2f-b778f9f3ec83",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "retell/check-availability",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "0649dd44-333b-5974-a469-d7b54dae0cb2",
+      "name": "Retell: check availability",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "primary"
+        },
+        "returnAll": true,
+        "timeMin": "={{ $json.body.args.date }}T09:00:00",
+        "timeMax": "={{ $json.body.args.date }}T17:00:00",
+        "options": {}
+      },
+      "id": "920a23c3-6709-59fe-9e56-d5b430639a21",
+      "name": "Get that day's events",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "alwaysOutputData": true,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Working day 09:00-17:00; a slot is free if no event overlaps it.\nconst day = $('Retell: check availability').first().json.body.args.date;\nconst busy = $input.all().filter(i => i.json.start).map(i => [new Date(i.json.start.dateTime || i.json.start.date), new Date(i.json.end.dateTime || i.json.end.date)]);\nconst slots = [];\nfor (let m = 9 * 60; m + 30 <= 17 * 60; m += 30) {\n  const s = new Date(`${day}T${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:00`);\n  const e = new Date(s.getTime() + 30 * 60000);\n  if (!busy.some(([bs, be]) => s < be && e > bs)) slots.push(s.toTimeString().slice(0, 5));\n}\nreturn [{ json: { result: slots.length ? `Free times on ${day}: ${slots.slice(0, 6).join(', ')}` : `No free times on ${day}. Offer another day.` } }];"
+      },
+      "id": "21f0ce22-bd7e-5f76-a5b7-cd6716904bbb",
+      "name": "Find free 30-min slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { result: $json.result } }}",
+        "options": {}
+      },
+      "id": "7636ec45-7e39-5d48-b4a9-59da4d6db063",
+      "name": "Return slots to agent",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "retell/book-appointment",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a44e33e6-babc-568a-a094-5ed74a0f75f3",
+      "name": "Retell: book appointment",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "mode": "id",
+          "value": "primary"
+        },
+        "start": "={{ $json.body.args.date }}T{{ $json.body.args.time }}:00",
+        "end": "={{ DateTime.fromISO($json.body.args.date + 'T' + $json.body.args.time).plus({ minutes: 30 }).toISO() }}",
+        "additionalFields": {
+          "summary": "=Call booking: {{ $json.body.args.name }}",
+          "description": "=Booked by the voice agent.\nPhone: {{ $json.body.call.from_number }}\nReason: {{ $json.body.args.reason }}",
+          "attendees": [
+            "={{ $json.body.args.email }}"
+          ]
+        }
+      },
+      "id": "12185277-c047-57d5-b93b-13d9f2f28b4d",
+      "name": "Create calendar event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        280,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Retell: book appointment').item.json.body.args.email }}",
+        "subject": "Your appointment is confirmed",
+        "emailType": "text",
+        "message": "=Hi {{ $('Retell: book appointment').item.json.body.args.name }},\n\nYou're booked for {{ $('Retell: book appointment').item.json.body.args.date }} at {{ $('Retell: book appointment').item.json.body.args.time }}. A calendar invite is on its way.\n\nSee you then!",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "70fdde58-f56f-5eef-a511-7d0e22cf70b7",
+      "name": "Email confirmation",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        560,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { result: 'Booked for ' + $('Retell: book appointment').item.json.body.args.date + ' at ' + $('Retell: book appointment').item.json.body.args.time + '. Confirmation email sent.' } }}",
+        "options": {}
+      },
+      "id": "d1431c94-5ded-58aa-98c6-8789d5b9d952",
+      "name": "Confirm to agent",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        840,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "retell/call-ended",
+        "options": {}
+      },
+      "id": "1ae39548-1971-5cf3-b2f0-372268880429",
+      "name": "Retell: call ended",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e3ecdfad-6753-5ca4-b998-540734928766",
+              "leftValue": "={{ $json.body.event }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "call_analyzed"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0dccdbe5-e00d-5fdf-b334-372ae3908c2e",
+      "name": "Call analysed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        280,
+        720
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Calls"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "call_id": "={{ $json.body.call.call_id }}",
+            "from": "={{ $json.body.call.from_number }}",
+            "duration_s": "={{ Math.round(($json.body.call.end_timestamp - $json.body.call.start_timestamp) / 1000) }}",
+            "summary": "={{ $json.body.call.call_analysis.call_summary }}",
+            "sentiment": "={{ $json.body.call.call_analysis.user_sentiment }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "0518080b-1d62-5ea6-a604-3982ba8503f0",
+      "name": "Log call to Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        560,
+        720
+      ]
+    }
+  ],
+  "connections": {
+    "Retell: check availability": {
+      "main": [
+        [
+          {
+            "node": "Get that day's events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get that day's events": {
+      "main": [
+        [
+          {
+            "node": "Find free 30-min slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find free 30-min slots": {
+      "main": [
+        [
+          {
+            "node": "Return slots to agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retell: book appointment": {
+      "main": [
+        [
+          {
+            "node": "Create calendar event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create calendar event": {
+      "main": [
+        [
+          {
+            "node": "Email confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email confirmation": {
+      "main": [
+        [
+          {
+            "node": "Confirm to agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retell: call ended": {
+      "main": [
+        [
+          {
+            "node": "Call analysed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call analysed?": {
+      "main": [
+        [
+          {
+            "node": "Log call to Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

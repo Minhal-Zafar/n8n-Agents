@@ -1,0 +1,233 @@
+{
+  "name": "YouTube to LinkedIn Content Repurposing",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Content Repurposing with Approval\nWhen a new video appears on a YouTube channel, GPT drafts a LinkedIn post from it, sends the draft to Telegram with **Approve / Decline** buttons, and only publishes on approval.\n\n**Setup:** set your channel ID in the RSS URL; OpenAI, Telegram bot and LinkedIn credentials.",
+        "height": 260,
+        "width": 420,
+        "color": 7
+      },
+      "id": "8c654f6f-0de1-5178-811b-f37a99b2ad56",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyHour"
+            }
+          ]
+        },
+        "feedUrl": "https://www.youtube.com/feeds/videos.xml?channel_id=YOUR_CHANNEL_ID"
+      },
+      "id": "f5e568af-bb58-53fe-bd80-057aa3102088",
+      "name": "New YouTube video",
+      "type": "n8n-nodes-base.rssFeedReadTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Write a LinkedIn post (max 1,200 characters) promoting this new video.\nTitle: {{ $json.title }}\nDescription: {{ $json.contentSnippet || $json.content }}\nLink: {{ $json.link }}\n\nStructure: a one-line hook, 3 short takeaways as bullet points, a question to drive comments, then the link. No hashtags spam - max 3. No emojis at line starts."
+      },
+      "id": "2a2c018b-4bef-5ab1-a19a-97790b670800",
+      "name": "Draft LinkedIn post",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "id": "24f2a706-cd80-57aa-96b9-49748bbea2db",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        280.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "message": "=New draft for LinkedIn:\n\n{{ $json.text }}",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double"
+          }
+        },
+        "options": {}
+      },
+      "id": "dc5dfb64-e095-5755-9d69-8e0defb3d6f9",
+      "name": "Ask for approval on Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "73f97384-f409-504b-862a-9360edb1bbe1",
+              "leftValue": "={{ $json.data.approved }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "cb21dc0e-f950-5b90-9266-d48c9c11974b",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "person": "YOUR_LINKEDIN_PERSON_ID",
+        "text": "={{ $('Draft LinkedIn post').item.json.text }}",
+        "additionalFields": {
+          "visibility": "PUBLIC"
+        }
+      },
+      "id": "0b139e4d-2228-5ec7-b50f-d565ec397e6c",
+      "name": "Publish on LinkedIn",
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=Skipped: {{ $('New YouTube video').item.json.title }}",
+        "additionalFields": {}
+      },
+      "id": "75834dd0-2331-5c6e-a73b-667d73415d0e",
+      "name": "Confirm skipped",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        360
+      ]
+    }
+  ],
+  "connections": {
+    "New YouTube video": {
+      "main": [
+        [
+          {
+            "node": "Draft LinkedIn post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Draft LinkedIn post": {
+      "main": [
+        [
+          {
+            "node": "Ask for approval on Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask for approval on Telegram": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Publish on LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Confirm skipped",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Draft LinkedIn post",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

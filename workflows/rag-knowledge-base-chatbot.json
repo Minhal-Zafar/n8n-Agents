@@ -1,0 +1,362 @@
+{
+  "name": "RAG Knowledge-Base Chatbot",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## RAG Knowledge-Base Chatbot\nTwo flows in one workflow:\n\n1. **Ingest** - any document dropped in a Google Drive folder is split, embedded and stored in Qdrant.\n2. **Chat** - a public chat page; the agent answers *only* from those documents and names the source file.\n\n**Setup:** Google Drive, OpenAI and Qdrant credentials; set the folder and the `company_docs` collection.",
+        "height": 260,
+        "width": 420,
+        "color": 7
+      },
+      "id": "2195743a-3ff1-5947-85e3-2f88ed7615e3",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "triggerOn": "specificFolder",
+        "folderToWatch": {
+          "__rl": true,
+          "mode": "url",
+          "value": "https://drive.google.com/drive/folders/YOUR_FOLDER_ID"
+        },
+        "event": "fileCreated",
+        "options": {}
+      },
+      "id": "8fd1ed66-00ee-5d77-98e7-f3de57eb80e3",
+      "name": "New file in Drive folder",
+      "type": "n8n-nodes-base.googleDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "={{ $json.id }}"
+        },
+        "options": {
+          "googleFileConversion": {
+            "conversion": {
+              "docsToFormat": "text/plain"
+            }
+          }
+        }
+      },
+      "id": "f5273614-e77f-5c05-900f-dd994063e2aa",
+      "name": "Download file",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "insert",
+        "qdrantCollection": {
+          "__rl": true,
+          "mode": "id",
+          "value": "company_docs"
+        },
+        "options": {}
+      },
+      "id": "f3ec70f2-d3f3-5e86-ab98-d27ddad78578",
+      "name": "Store in Qdrant",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "6a6455ca-7c2d-5774-92fa-4719d5ec9bea",
+      "name": "Embeddings (ingest)",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        465.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "dataType": "binary",
+        "options": {
+          "metadata": {
+            "metadataValues": [
+              {
+                "name": "source",
+                "value": "={{ $('New file in Drive folder').item.json.name }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "5dc7c140-e3fa-59e2-85cd-efc96cba3096",
+      "name": "Document Loader",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [
+        655.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "chunkSize": 1000,
+        "chunkOverlap": 150,
+        "options": {}
+      },
+      "id": "7e0e87f6-f2b0-5fb9-9ce7-ab7fcc3c98fa",
+      "name": "Text Splitter",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [
+        655.0,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "public": true,
+        "options": {
+          "title": "Ask our docs",
+          "subtitle": "Answers come only from the company knowledge base."
+        }
+      },
+      "id": "84fc4a37-aa11-5952-ae64-d9551c5eee1c",
+      "name": "Chat page",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "systemMessage": "You answer questions using ONLY the company_docs tool.\n- Always search before answering.\n- Quote the relevant facts and end with: Source: <file name>.\n- If the documents don't contain the answer, say \"I couldn't find that in our documents\" - never invent policy, prices or dates."
+        }
+      },
+      "id": "951e2282-3650-5817-bbae-9319384d2dbf",
+      "name": "Knowledge Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        280,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "id": "22eb686a-9c4b-5f6c-9847-206cfc461835",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        90.0,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "contextWindowLength": 8
+      },
+      "id": "bfa62895-c189-5632-9067-4b61214e0269",
+      "name": "Chat Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        280.0,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolName": "company_docs",
+        "toolDescription": "Search the company's internal documents (policies, product docs, FAQs). Input: a search query.",
+        "qdrantCollection": {
+          "__rl": true,
+          "mode": "id",
+          "value": "company_docs"
+        },
+        "topK": 5,
+        "options": {}
+      },
+      "id": "801188ac-cd57-5eea-b558-621b0ded2cf0",
+      "name": "Search company_docs",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.1,
+      "position": [
+        470.0,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "01a2f23d-ce8e-5b29-891d-d1df4c9a80fb",
+      "name": "Embeddings (search)",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        470.0,
+        760
+      ]
+    }
+  ],
+  "connections": {
+    "New file in Drive folder": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "Store in Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat page": {
+      "main": [
+        [
+          {
+            "node": "Knowledge Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings (ingest)": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Store in Qdrant",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Document Loader": {
+      "ai_document": [
+        [
+          {
+            "node": "Store in Qdrant",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Document Loader",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Knowledge Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Knowledge Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search company_docs": {
+      "ai_tool": [
+        [
+          {
+            "node": "Knowledge Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embeddings (search)": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Search company_docs",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

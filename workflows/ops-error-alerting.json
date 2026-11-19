@@ -1,0 +1,167 @@
+{
+  "name": "Ops: Workflow Error Alerting",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Error Alerting for all workflows\nSet this as the **Error workflow** in every production workflow's settings. Any failure posts an alert with the failing node, message and a link to the execution, and is logged to a sheet for weekly review.\n\n**Setup:** Slack and Google Sheets credentials.",
+        "height": 260,
+        "width": 420,
+        "color": 7
+      },
+      "id": "fc0b0d74-7639-5743-b448-10132acb6cfd",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "61916b8d-e7fa-5b6c-929e-44bd17f31d50",
+      "name": "On any workflow error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "546c460d-2011-5dd7-b115-ee0343baa952",
+              "name": "workflow",
+              "value": "={{ $json.workflow.name }}",
+              "type": "string"
+            },
+            {
+              "id": "948d0e78-f821-530c-b6fa-cbfc1eb03ed1",
+              "name": "node",
+              "value": "={{ $json.execution.lastNodeExecuted }}",
+              "type": "string"
+            },
+            {
+              "id": "82d49abc-d8a3-5a71-8b7c-a7c955c44d07",
+              "name": "message",
+              "value": "={{ $json.execution.error.message }}",
+              "type": "string"
+            },
+            {
+              "id": "8c66e1ad-b593-5021-8848-33c3f1803475",
+              "name": "url",
+              "value": "={{ $json.execution.url }}",
+              "type": "string"
+            },
+            {
+              "id": "663a62fe-ee78-544d-be23-a0d03468bf27",
+              "name": "at",
+              "value": "={{ $now.toISO() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9c98cc8c-de8c-51dc-8862-a25495d9c186",
+      "name": "Format alert",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#n8n-alerts"
+        },
+        "text": "=:x: *{{ $json.workflow }}* failed at node *{{ $json.node }}*\n>{{ $json.message }}\n<{{ $json.url }}|Open execution>",
+        "otherOptions": {}
+      },
+      "id": "b83c3250-b79b-5365-a505-5bdac60bbf84",
+      "name": "Alert on Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Errors"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "783bcc0d-e09a-5307-a89d-d54572de506f",
+      "name": "Log to error sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        560,
+        360
+      ]
+    }
+  ],
+  "connections": {
+    "On any workflow error": {
+      "main": [
+        [
+          {
+            "node": "Format alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format alert": {
+      "main": [
+        [
+          {
+            "node": "Alert on Slack",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log to error sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

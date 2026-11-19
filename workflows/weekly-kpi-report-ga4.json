@@ -1,0 +1,294 @@
+{
+  "name": "Weekly KPI Report (GA4)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Weekly KPI Report\nEvery Monday 08:00: pulls GA4 for the last 7 days and the 7 before, computes week-over-week change, asks GPT for a 3-bullet executive summary and emails + posts the report.\n\n**Setup:** Google Analytics (GA4 property ID), OpenAI, Gmail and Slack credentials.",
+        "height": 260,
+        "width": 420,
+        "color": 7
+      },
+      "id": "b1e1952e-8c5d-5d54-b49e-2ae65053b2d6",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "b257391b-9eb2-51d0-8d5a-dd8c15b5496a",
+      "name": "Every Monday 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "propertyId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GA4_PROPERTY_ID"
+        },
+        "dateRange": "last7days",
+        "metricsGA4": {
+          "metricValues": [
+            {
+              "listName": "other",
+              "name": "activeUsers"
+            },
+            {
+              "listName": "other",
+              "name": "sessions"
+            },
+            {
+              "listName": "other",
+              "name": "screenPageViews"
+            },
+            {
+              "listName": "other",
+              "name": "keyEvents"
+            }
+          ]
+        },
+        "simple": false,
+        "returnAll": true,
+        "additionalFields": {}
+      },
+      "id": "bb4e3b8f-a66b-5076-9399-7af4ab9786aa",
+      "name": "GA4: last 7 days",
+      "type": "n8n-nodes-base.googleAnalytics",
+      "typeVersion": 2,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "propertyId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_GA4_PROPERTY_ID"
+        },
+        "dateRange": "custom",
+        "startDate": "={{ $now.minus({ days: 14 }).toISODate() }}",
+        "endDate": "={{ $now.minus({ days: 8 }).toISODate() }}",
+        "metricsGA4": {
+          "metricValues": [
+            {
+              "listName": "other",
+              "name": "activeUsers"
+            },
+            {
+              "listName": "other",
+              "name": "sessions"
+            },
+            {
+              "listName": "other",
+              "name": "screenPageViews"
+            },
+            {
+              "listName": "other",
+              "name": "keyEvents"
+            }
+          ]
+        },
+        "simple": false,
+        "returnAll": true,
+        "additionalFields": {}
+      },
+      "id": "a128af29-3081-522b-b989-d3c9df215ec2",
+      "name": "GA4: previous 7 days",
+      "type": "n8n-nodes-base.googleAnalytics",
+      "typeVersion": 2,
+      "executeOnce": true,
+      "position": [
+        560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// GA4 raw rows: metricValues[i].value in the order requested above.\nconst names = ['activeUsers', 'sessions', 'screenPageViews', 'keyEvents'];\nconst total = items => names.map((_, i) => items.reduce((a, it) => a + Number(it.json.rows?.[0]?.metricValues?.[i]?.value ?? it.json.metricValues?.[i]?.value ?? 0), 0));\nconst cur = total($('GA4: last 7 days').all()), prev = total($input.all());\nconst kpis = names.map((n, i) => ({ metric: n, this_week: cur[i], last_week: prev[i],\n  change_pct: prev[i] ? Math.round((cur[i] - prev[i]) / prev[i] * 1000) / 10 : null }));\nconst table = kpis.map(k => `<tr><td>${k.metric}</td><td>${k.this_week}</td><td>${k.last_week}</td><td>${k.change_pct ?? '-'}%</td></tr>`).join('');\nreturn [{ json: { kpis, html_table: `<table border=1 cellpadding=6><tr><th>Metric</th><th>This week</th><th>Last week</th><th>Change</th></tr>${table}</table>` } }];"
+      },
+      "id": "e8ab0c30-345b-5a3e-8eb1-37efb7db295d",
+      "name": "Compare week over week",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Here are this week's website KPIs vs last week as JSON:\n{{ JSON.stringify($json.kpis) }}\n\nWrite exactly 3 short bullet points for a busy founder: the biggest change, what probably caused it, and one concrete action for this week. Plain text, no fluff."
+      },
+      "id": "959c45e0-1ecf-5031-b29b-4a72a489ca5f",
+      "name": "Write executive summary",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "id": "9cbf76c6-4279-538a-af9a-e9c8017beeae",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1120.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "team@your-company.example",
+        "subject": "=Weekly KPIs - week of {{ $now.minus({ days: 7 }).toFormat('d LLL') }}",
+        "message": "=<h2>Weekly KPIs</h2><p>{{ $json.text.replace(/\\n/g, '<br>') }}</p>{{ $('Compare week over week').item.json.html_table }}",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "710de437-18ba-55c5-ad88-0bba246376b5",
+      "name": "Email the report",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#growth"
+        },
+        "text": "=:bar_chart: *Weekly KPIs*\n{{ $('Write executive summary').item.json.text }}",
+        "otherOptions": {}
+      },
+      "id": "0d4574b8-8426-5cdf-b40b-edf5186fb783",
+      "name": "Post to Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1400,
+        360
+      ]
+    }
+  ],
+  "connections": {
+    "Every Monday 08:00": {
+      "main": [
+        [
+          {
+            "node": "GA4: last 7 days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GA4: last 7 days": {
+      "main": [
+        [
+          {
+            "node": "GA4: previous 7 days",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GA4: previous 7 days": {
+      "main": [
+        [
+          {
+            "node": "Compare week over week",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compare week over week": {
+      "main": [
+        [
+          {
+            "node": "Write executive summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write executive summary": {
+      "main": [
+        [
+          {
+            "node": "Email the report",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Post to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Write executive summary",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

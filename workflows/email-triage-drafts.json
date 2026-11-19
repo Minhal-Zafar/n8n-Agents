@@ -1,0 +1,914 @@
+{
+  "name": "AI Email Triage to Drafts (production)",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {
+          "forceReconnect": 10
+        }
+      },
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [
+        -432,
+        64
+      ],
+      "id": "6f1fc38b-3c0f-4391-a216-e21ac6c0af2d",
+      "name": "Email Trigger (IMAP)",
+      "credentials": {
+        "imap": {
+          "id": "",
+          "name": "IMAP account 2"
+        }
+      },
+      "notes": "Trigger every time receives an email"
+    },
+    {
+      "parameters": {
+        "inputText": "=Email Subject:  {{ $json.subject }}\nEmail From: {{ $json.from }}\nEmail Body: {{ $json.textPlain }}",
+        "categories": {
+          "categories": [
+            {
+              "category": "Hot Leads",
+              "description": "Emails that express strong intent or buying signals. These usually include direct questions about product samples, pricing, availability, or logistical steps like providing a shipping address. The sender appears decision-ready or is actively evaluating gloves for purchase. Examples of signals:  Asking for price, samples, MOQ  “Can you send me X?”  “Our address is...”  “We are looking to purchase gloves…"
+            },
+            {
+              "category": "Leads",
+              "description": "Mildly interested responses that are not direct buying signals. These may express general curiosity, requests for more information, or soft engagement. Often vague or non-committal. Examples of signals:  “Send me more details.”  “I’ll pass this to my manager.”  “We might be interested.”  “What do you offer?”"
+            },
+            {
+              "category": "Referrals",
+              "description": "Messages where the recipient redirects you to someone else in the organization or provides an alternative contact person. Often includes names, emails, or roles. Examples of signals:  “You should speak to John.”  “I’m not the right contact, but here’s who is…”  “Forwarding this to our purchasing team.”"
+            },
+            {
+              "category": "Negatives",
+              "description": "Clear rejection or opt-out messages. These may include requests to be removed, mention of an existing supplier, or a statement that they are not currently using gloves. Examples of signals:  “Please remove me from your list.”  “We already have a supplier.”  “We don’t use gloves.”"
+            },
+            {
+              "category": "Auto responders",
+              "description": "Automatic replies indicating the recipient is unavailable, on vacation, or no longer with the company. Examples of signals: “I’m currently out of office…”  “This mailbox is no longer monitored…”"
+            },
+            {
+              "category": "Spam",
+              "description": "Irrelevant, unsolicited, or clearly off-topic emails that do not require a reply. May include mass marketing, promotional offers, or completely unrelated content. Examples of signals:  Promotions from unrelated vendors  Random newsletters  Messages with no clear connection to glove sales"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.textClassifier",
+      "typeVersion": 1.1,
+      "position": [
+        -16,
+        0
+      ],
+      "id": "fb43c00f-a8ee-43a4-b246-90449a85c7fd",
+      "name": "Categories Classifier"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        96,
+        544
+      ],
+      "id": "6b0f0bf3-ea38-44e2-a1fe-7247a0cba9fa",
+      "name": "OpenAI",
+      "credentials": {
+        "openAiApi": {
+          "id": "",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Read the email below. It appears to be unrelated to glove sales (spam, SEO offers, etc.).\nDo not write a reply. Simply confirm this message should be ignored.\n\nEmail:  {{ $('Email Trigger (IMAP)').item.json.textPlain }}\n",
+        "options": {
+          "systemMessage": "You are a helpful, knowledgeable sales assistant for a glove supplier. Your name is Maria, and the company name is Acme Supply. Write polite, informed draft replies to incoming emails about gloves. Be supportive and never pushy. Always align responses with the intent and tone of the original message. Format replies in proper email style.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        736,
+        976
+      ],
+      "id": "22dec2bc-31c1-4433-9693-5254299ffa6f",
+      "name": "Spam Agent",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 5
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Read the automatic reply below. The contact is away or no longer at the company.\n\nIf there is a new contact name or email, extract it and note it for future outreach.\nDo not write a reply unless a new contact is explicitly provided — then thank them or acknowledge transition.\n\nEmail: {{ $('Email Trigger (IMAP)').item.json.textPlain }}\n\nReference Templates:\n\n1. Hi [New Contact’s Name],\nI was informed via [Previous Contact's Name]’s auto-reply that you're now the appropriate person to speak with regarding glove supplies.\n\nI'd be happy to support you with samples or pricing information, depending on your needs.\nTo get started, could you please let me know:\n\nWhat type of gloves you're currently using?\n\nApproximate monthly usage (in cases)?\n\nPreferred shipping address (if you'd like samples)?\n\nLooking forward to connecting and assisting you.\n\nBest regards,\n[Your Name]\n\n2. Hi [Name],\nThanks for your auto-reply. I understand you're currently out of office until [Return Date] — no problem at all.\n\nI’ll follow up after you’re back to check in again. In the meantime, if someone else is covering your responsibilities and you'd prefer I reach out to them, just let me know.\n\nWishing you a restful break,\n[Your Name]\n\n3. Hi [New Contact’s Name],\nI understand that [Previous Contact’s Name] is no longer with the company and that you've taken over their responsibilities.\n\nIf gloves are still relevant for your team, I'd be happy to support you with samples or pricing to compare with your current provider.\nLet me know if you'd be open to a quick conversation or want samples sent your way.\n\nLooking forward to working together,\n[Your Name]\n\n4. Hi [Team],\nI received an auto-reply from [Name] indicating they’re currently unavailable.\n\nIf someone else on your team is handling glove supplies in their absence, I'd appreciate it if you could point me in the right direction or forward this message to them.\n\nThanks for your help, and I hope [Name] has a smooth return.\n\nBest regards,\n[Your Name]\n\n5. Hi [New Contact’s Name],\nI was forwarded to you as the temporary contact while [Previous Contact's Name] is away.\n\nI'm reaching out regarding gloves — we’re supporting facilities like yours with free samples and competitive pricing options.\nPlease let me know if this is something you're involved with, or if there’s someone else I should connect with during this period.\n\nAppreciate your time,\n[Your Name]\n",
+        "options": {
+          "systemMessage": "You are a helpful, knowledgeable sales assistant for a glove supplier. Your name is Maria, and the company name is Acme Supply. Write polite, informed draft replies to incoming emails about gloves. Be supportive and never pushy. Always align responses with the intent and tone of the original message. Format replies in proper email style.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        1152,
+        736
+      ],
+      "id": "5f1cee60-46e7-4950-8f0e-c9c801038262",
+      "name": "Auto Responder Agent",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 5
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Read the email below. The sender has either opted out, stated they already have a vendor, or is not using gloves.\n\nWrite a short, polite reply acknowledging their message and letting them know you’ll remove them from future outreach.\n\nEmail:  {{ $('Email Trigger (IMAP)').item.json.textPlain }}\n\nReference Templates:\n\n1. Hi [Name],\nThank you for letting me know – I completely understand.\n\nI’ve gone ahead and removed your contact from our outreach list, and you won’t receive further emails from us. Should your needs ever change in the future, feel free to reach out — we’d be happy to support you.\n\nWishing you all the best,\n\n2. Hi [Name],\nThanks for your response and for sharing that you’re already working with a supplier — fully understood.\n\nShould circumstances ever shift or if you'd like a second option down the line, we’d be happy to support you with samples or pricing for comparison.\n\nWishing you continued success,\n[Your Name]\n\n3. Hi [Name],\nThank you for getting back to me and clarifying — no problem at all.\n\nIf glove needs ever arise in the future or if you'd like to browse our product range, you’re always welcome to visit www.example.com.\n\nAll the best going forward,\n[Your Name]\n\n4. Hi [Name],\nThank you for the update — your request to be removed from our contact list has been noted and actioned.\n\nYou will not receive any further communication from us. I appreciate your time and wish you well moving forward.\n\nKind regards,\n[Your Name]\n\n5. Hi [Name],\nThanks for your response. I understand that you’re not currently using disposable gloves — no worries at all.\n\nShould that change down the line, feel free to reach out. We’d be happy to assist if the need arises.\n\nWishing you all the best,\n[Your Name]\n",
+        "options": {
+          "systemMessage": "You are a helpful, knowledgeable sales assistant for a glove supplier. Your name is Maria, and the company name is Acme Supply. Write polite, informed draft replies to incoming emails about gloves. Be supportive and never pushy. Always align responses with the intent and tone of the original message. Format replies in proper email style.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        496
+      ],
+      "id": "59b276a2-df9d-40f1-b01c-dbcd2ebfb348",
+      "name": "Negatives Agent",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 5
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Read the email below. The sender has referred us to someone else. Write a respectful reply thanking them and confirming you’ve noted the new contact.\n\nIf they provided a name/email, acknowledge it and optionally ask:\n“Would you mind confirming if I should reach out directly, or would you prefer to introduce us?”\n\nEmail:  {{ $('Email Trigger (IMAP)').item.json.textPlain }}\n\nReference Templates:\n\n1. Hi,\nThank you for pointing me in the right direction – I truly appreciate your help.\n\nI’ve noted the contact details you shared, and I’ll be reaching out to them shortly. If there’s anything else I should know before doing so, feel free to let me know.\n\nThanks again for your time and assistance.\n\nBest regards,\n\n2. Hi [Name],\nThanks so much for the referral – I really appreciate your help.\n\nJust to ensure we’re aligned, would you prefer to introduce me to [New Contact’s Name], or should I reach out to them directly? Either way works – whatever you’re most comfortable with.\n\nThanks again, and wishing you a great week ahead.\n\nBest regards,\n\n3. Hi [Name],\nThanks for the update – completely understood.\n\nI’ll go ahead and connect with [New Contact’s Name] as suggested. Please let me know if there’s anything specific you’d like me to mention or if I should wait for your introduction.\n\nWishing you all the best in your role, and thanks again for your guidance.\n\nBest regards,\n\n4. Hi [Name],\nThank you for letting me know – and congratulations on the next step in your journey!\n\nI’ve made note of your replacement and will be in touch with them shortly. If there’s anything I can do to support the transition, feel free to reach out.\n\nWishing you all the best going forward.\n\nWarm regards,\n\n5. Hi [Name],\nThanks again for referring me to [New Contact’s Name].\n\nI wanted to follow up and let you know I’ve reached out to them. Please feel free to let me know if there’s anything else you’d recommend as next steps.\n\nAppreciate your support, and looking forward to staying in touch.\n\nBest regards,\n\n\n",
+        "options": {
+          "systemMessage": "You are a helpful, knowledgeable sales assistant for a glove supplier. Your name is Maria, and the company name is Acme Supply. Write polite, informed draft replies to incoming emails about gloves. Be supportive and never pushy. Always align responses with the intent and tone of the original message. Format replies in proper email style.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        1584,
+        144
+      ],
+      "id": "0b598431-0dd2-4c88-b7b1-ebeb3c2e59f8",
+      "name": "Referrals Agent",
+      "retryOnFail": true,
+      "waitBetweenTries": 5000,
+      "maxTries": 5
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Read the email below. Write a polite and helpful reply showing appreciation for their interest. Offer product information and gently ask these 3 questions:\n1. Roughly how many cases do you use per month?\n2. What glove thickness do you prefer? (Light, Medium, Heavy-duty)\n3. What type of gloves are you currently using? Glove type (Nitrile, Latex, Vinyl)\n\nDo not mention samples yet unless there's strong potential.\n\nEmail:  {{ $('Email Trigger (IMAP)').item.json.textPlain }}\n\nReference Templates:\n\n1. Hi ,\nThanks for clarifying.\nMy intention was to send you samples of our gloves for you to test and compare with what you are buying now. It’s mostly to see if you might need any disposable gloves for your facilities. If so, Acme Supply might be able to help you out.\nThe samples are complimentary, including shipping costs.\nShould you want to proceed, we would only need:\n• Your preferred shipping address?\n• Your typical Nitrile Glove monthly usage? (In cases of 1000)\nI look forward to your reply.\nBest Regards,\n\n2. Hi ,\nThank you for reaching out – no worries.\nApart from gloves, we also have an extensive range of health & safety products where we may be able to help you on which you can view & purchase directly via our website www.example.com. Please don’t hesitate to get in touch.\nLooking forward to helping whenever the need arises.\nBest regards,\n\n3. Hi ,\nThanks for informing me – no worries. We’ll be here should your requirements arise in the future.\nOn the other hand, if you are interested to learn about glove costs (to compare with your current provider), feel free to let me know and I can arrange that for you as well.\nApart from gloves, we also have an extensive range of health & safety products where we may be able to help you on which you can view & purchase directly via our website www.example.com\nBest Regards,\n\n4. Hi ,\nI was referred to you by your colleague, <name>. We're sending samples and wanted to make sure we send the right kind — both in quality and price.\nCould you quickly let me know?\n\t\tWhat brand, color, or thickness you currently use? (Anything you know helps)\n\t\tAbout how many cases per month you go through? (In cases of 1000 gloves)\nThis way we can send you the most relevant samples and pricing.\nLooking forward to your reply so we can get these out to you!\nBest Regards\n\n5. Hi ,\nThank you for the clarification.\nTo ensure that I have the correct & up-to-date information\nWould you mind sharing the name and email address of someone in your Management or Purchasing department, so I can reach out to them directly?\nI really appreciate your help and time.\nBest regards,\n\n6. Hi ,\nI was informed that you are the appropriate person to receive and assess our disposable gloves for your company - and I’d be happy to support you in finding the perfect fit.\nTo get started, please take a look at the attached brochure and select the SKU that most closely matches the gloves your team typically uses. I’ll then arrange for the free samples to be sent directly to you. Just let me know your preferred shipping address, and I’ll ensure the samples arrive promptly!\nFor added peace of mind, we also offer a hassle-free return policy for smaller orders, which you can purchase directly from www.example.com\nLook forward to your response.\nAcme Supply\nReturn & Refund Policy\nReturns Policy Acme Supply is committed to customer satisfaction. Each validated / eligible return request shall be given a full refund within 30 days. To ensure quality and integrity - in the event of damaged or discrepant orders, please review the Exchange & Returns policy guidelines carefully. Exchange and Returns (97 kB)\nhttps://www.example.com/pages/refund-returns-policy\n\n",
+        "options": {
+          "systemMessage": "You are a helpful, knowledgeable sales assistant for a glove supplier. Your name is Marco, and the company name is Acme Supply. Write polite, informed draft replies to incoming emails about gloves. Be supportive and never pushy. Always align responses with the intent and tone of the original message. Format replies in proper email style.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        1536,
+        -160
+      ],
+      "id": "2aa301a0-c847-4684-9e30-9b24c4cd4e01",
+      "name": "Leads Agent",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Read the email below. Based on its content:\n1. Glove type (Nitrile, Latex, Vinyl)\n2. Glove thickness (Light, Medium, Heavy-duty)\n3. Monthly usage in cases\n\nThen, write a professional reply do not mention the subject in the email body. Always Include the estimate:\n\nRules for providing Estimation:\n\n1. Glove Type Estimation:\nEstimated based on industry and customer role.\nIndustry / Role - Likely Glove Type(s)\ni- Food processing / produce / meat - Nitrile (blue, sometimes black)\nii- Medical / clinics / testing - Nitrile (blue, exam grade)\niii- Law enforcement / prisons / EMS - Nitrile (black, fentanyl-resistant)\niv- Janitorial / cleaning services - Nitrile or latex (often powder-free)\nv- Automotive / mechanical - Nitrile (black or orange, industrial)\nvi- Tattoo / beauty / salons - Nitrile (black or purple)\nvii- Education (custodial / food) - Nitrile or vinyl (blue/clear)\nviii- Farming / agriculture (harvesters) - Nitrile or latex (blue, green, white)\n\n2. Thickness Estimation\nBased on job role or use-case.\nUse Case / Job Role - Thickness (in mils)\ni- Food handling / prep - 3–4 mil\nii- Medical exam / clinics - 4–5 mil\niii- Custodial / light cleaning - 4–5 mil\niv- Law enforcement / corrections - 6–8 mil\nv- Automotive / heavy-duty - 6–8 mil\nvi- Tattoo / salons - 4–6 mil\nvii- Janitorial with chemicals - 5–6 mil minimum\n\n3. Monthly Usage Estimation\nEstimated by company size and facility type.\nCompany Type - Staff Size - Estimated Monthly Usage\ni- Small food biz (1 site) - <20 staff - 1–3 cases\nii- Medium plant or clinic - 20–50 staff - 4–10 cases\niii- Multi-site / regional ops - 50–200 staff - 10–50+ cases\niv- Enterprise (multi-state) - 200+ staff - 50–500+ cases\n\nAsk these 3 questions in this order (If, glove type thickness, and monthly usage is not provided:\n1. Roughly how many cases do you go through per month?\n2. What thickness do you prefer?\n3. What type of gloves do you use?\n\nEmail:  {{ $('Email Trigger (IMAP)').item.json.textPlain }}\n\nReference Templates:\n\n1. Hi Michelle — thanks so much for looping in Greg and Chelsea!\n\nHi Greg, hi Chelsea — great to meet you both. We’re preparing a sample shipment of nitrile gloves for your team, and I just want to make sure we send the right type for your environment.\n\nBased on your operation, we estimate your team may be using medium-duty nitrile gloves, likely in the 4–6 mil range, with monthly usage somewhere between 5–10 cases, depending on roles and departments. \n\nTo be sure, could you confirm a few quick details?\n\nRoughly how many cases do you go through per month?\nWhat thickness do you prefer? (Light, Medium, Heavy-duty, or in mils)\nWhat type of gloves do you use most? (Nitrile, Latex, Vinyl)\n \nOnce I hear back, I’ll ship out the most relevant samples for your team to try.\nBest regards,\n[Your Name]\n\n2. Hi Phillip,\n\nThanks for your reply, and apologies for the delay in following up.\n\nBefore we prepare your shipment, I just want to make sure we’re sending gloves that fit your needs. Could you confirm a few quick details for us?\n\nRoughly how many cases do you go through per month?\nWhat thickness do you prefer? (Light, Medium, Heavy-duty, or in mils)\nWhat type of gloves do you use? (Nitrile, Latex, Vinyl)\n\nOnce we have this info, I’ll make sure we send the right match to your Lumberton facility.\n\nLooking forward to your response.\n\nBest regards,\nJessica\nAcme Supply\n\n3. Hi Jordan,\n\nThanks for confirming the address — I’ve noted 5101 N. 9th Ave, Sioux Falls, SD 57104 for the shipment.\nBefore we finalize your glove samples, I just want to make sure we’re sending the right type for your team.\nWe offer several nitrile glove options, and we want to avoid sending something that’s not a good fit.\nCould you kindly confirm a few quick details?\n\nRoughly how many cases do you go through per month? (1000 gloves a case)\nWhat thickness do you prefer? (3, 5, 4, 6, 8 … mils)\nWhat type of gloves do you use? (Nitrile, Latex, Vinyl)\nOnce I have that, we’ll finalize the sample that best fits your needs.\n\nBest Regards\n\n\n4. Hi [Name],\nThanks for providing your shipping details — we’re preparing your complimentary glove samples now.\n\nBased on your role and facility type, we estimate you may be using around 18–22 cases/month of 5mil nitrile gloves, which aligns well with our supply programs for high-use teams.\n\nWhile we process your shipment, could you please confirm:\n\nYour average glove usage per month (in cases)?\n\nThickness preference (light, medium, heavy-duty)?\n\nAny specific brands or types you currently use?\n\nWe’ll use this info to fine-tune the sample selection and discuss pricing options if you're interested.\n\nBest regards,\n[Your Name]\n\n5. Hi [Name],\nI was referred to you as the person overseeing glove purchasing for your team. Based on the industry and use-case, we estimate you may go through around 10–15 cases/month of medium-duty nitrile gloves.\n\nWe’d be glad to send you some sample options to compare quality and fit — free of charge, including shipping.\n\nTo get started, could you let me know:\n\nHow many cases of gloves do you use monthly?\n\nWhat thickness works best for your team?\n\nWhich glove type do you currently use?\n\nThanks again — looking forward to assisting you.\n\nBest regards,\n[Your Name]",
+        "options": {
+          "systemMessage": "You are a helpful, knowledgeable sales assistant for a glove supplier. Your name is Marco, and the company name is Acme Supply. Write polite, informed draft replies to incoming emails about gloves. Be supportive and never pushy. Always align responses with the intent and tone of the original message. Format replies in proper email style.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.1,
+      "position": [
+        656,
+        -368
+      ],
+      "id": "03fc89bd-ec5a-4e3b-a755-4c5fbcee1331",
+      "name": "Hot Leads Agent",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5000/copy-email",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "uid",
+              "value": "={{ $json.attributes.uid }}"
+            },
+            {
+              "name": "target_folder",
+              "value": "Leads"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1296,
+        -160
+      ],
+      "id": "f5481c65-e23a-404d-8bef-807e4444e5f8",
+      "name": "Copy to Leads",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5000/copy-email",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "uid",
+              "value": "={{ $json.attributes.uid }}"
+            },
+            {
+              "name": "target_folder",
+              "value": "Hot Leads"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        464,
+        -368
+      ],
+      "id": "420e9e8a-7f53-480e-9a90-c9f24cf9c2f7",
+      "name": "Copy to Hot leads",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": " http://localhost:5000/move",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "uid",
+              "value": "={{ $json.attributes.uid }}"
+            },
+            {
+              "name": "target_folder",
+              "value": "Referrals"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1312,
+        144
+      ],
+      "id": "fcf73b3f-b694-443c-822b-113a401caa51",
+      "name": "Copy to Referrals",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": " http://localhost:5000/move",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "uid",
+              "value": "={{ $json.attributes.uid }}"
+            },
+            {
+              "name": "target_folder",
+              "value": "Negatives"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1232,
+        496
+      ],
+      "id": "78f1e158-0177-4f91-986b-61744d77cbcd",
+      "name": "Copy to Negatives",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": " http://localhost:5000/move",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "uid",
+              "value": "={{ $json.attributes.uid }}"
+            },
+            {
+              "name": "target_folder",
+              "value": "Auto responders"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        896,
+        736
+      ],
+      "id": "b95d4d59-9cee-457f-8943-cbae6eb5b617",
+      "name": "Copy to Auto responders",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": " http://localhost:5000/move",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "uid",
+              "value": "={{ $json.attributes.uid }}"
+            },
+            {
+              "name": "target_folder",
+              "value": "Spam"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        528,
+        976
+      ],
+      "id": "be9dae4e-0761-46db-b24a-f98ef0259890",
+      "name": "Copy to Spam",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5000/create-draft",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "to",
+              "value": "={{ $('Categories Classifier').item.json.to }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Categories Classifier').item.json.subject }}"
+            },
+            {
+              "name": "body",
+              "value": "={{ $('Leads Agent').item.json.output }}"
+            },
+            {
+              "name": "draft_folder",
+              "value": "Leads Drafts"
+            },
+            {
+              "name": "uid",
+              "value": "={{ $('Categories Classifier').item.json.attributes.uid }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1968,
+        -160
+      ],
+      "id": "b3f4b993-f2ba-4b15-829b-67f04274956e",
+      "name": "Create Lead Draft",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5000/create-draft",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "to",
+              "value": "={{ $('Categories Classifier').item.json.from }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Categories Classifier').item.json.subject }}"
+            },
+            {
+              "name": "body",
+              "value": "={{ $('Hot Leads Agent').item.json.output }}"
+            },
+            {
+              "name": "uid",
+              "value": "={{ $('Categories Classifier').item.json.attributes.uid }}"
+            },
+            {
+              "name": "draft_folder",
+              "value": "Hot Leads Drafts"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1008,
+        -368
+      ],
+      "id": "0def523f-9092-4bbf-90c9-10c89b5e44ec",
+      "name": "Create Hot leads Draft",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5000/create-draft",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "to",
+              "value": "={{ $('Categories Classifier').item.json.to }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Categories Classifier').item.json.subject }}"
+            },
+            {
+              "name": "body",
+              "value": "={{ $('Referrals Agent').item.json.output }}"
+            },
+            {
+              "name": "uid",
+              "value": "={{ $('Categories Classifier').item.json.attributes.uid }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1984,
+        144
+      ],
+      "id": "6ca39394-e139-48b5-8505-7f15182389d6",
+      "name": "Create Referrals Draft",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5000/create-draft",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "to",
+              "value": "={{ $('Categories Classifier').item.json.to }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Categories Classifier').item.json.subject }}"
+            },
+            {
+              "name": "body",
+              "value": "={{ $('Negatives Agent').item.json.output }}"
+            },
+            {
+              "name": "uid",
+              "value": "={{ $('Categories Classifier').item.json.attributes.uid }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1824,
+        496
+      ],
+      "id": "40f99e60-4114-4d1b-8835-d3097750723e",
+      "name": "Create Negatives Draft",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5000/create-draft",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "to",
+              "value": "={{ $('Categories Classifier').item.json.to }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Categories Classifier').item.json.subject }}"
+            },
+            {
+              "name": "body",
+              "value": "={{ $('Auto Responder Agent').item.json.output }}"
+            },
+            {
+              "name": "uid",
+              "value": "={{ $('Categories Classifier').item.json.attributes.uid }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1552,
+        736
+      ],
+      "id": "6ef500fa-693f-4d67-985a-a9d88cc35127",
+      "name": "Create Auto Responders Draft",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:5000/create-draft",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "to",
+              "value": "={{ $('Categories Classifier').item.json.to }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Categories Classifier').item.json.subject }}"
+            },
+            {
+              "name": "body",
+              "value": "={{ $('Spam Agent').item.json.output }}"
+            },
+            {
+              "name": "=uid",
+              "value": "={{ $('Categories Classifier').item.json.attributes.uid }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1184,
+        976
+      ],
+      "id": "b53e90de-401a-4a40-8c94-fae1b195c267",
+      "name": "Create Auto Responders Draft1",
+      "retryOnFail": true,
+      "maxTries": 5,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Email Trigger (IMAP)": {
+      "main": [
+        [
+          {
+            "node": "Categories Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Categories Classifier": {
+      "main": [
+        [
+          {
+            "node": "Copy to Hot leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Copy to Leads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Copy to Referrals",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Copy to Negatives",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Copy to Auto responders",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Copy to Spam",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Hot Leads Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Leads Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Referrals Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Negatives Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Spam Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Auto Responder Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Categories Classifier",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auto Responder Agent": {
+      "main": [
+        [
+          {
+            "node": "Create Auto Responders Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Negatives Agent": {
+      "main": [
+        [
+          {
+            "node": "Create Negatives Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Referrals Agent": {
+      "main": [
+        [
+          {
+            "node": "Create Referrals Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leads Agent": {
+      "main": [
+        [
+          {
+            "node": "Create Lead Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hot Leads Agent": {
+      "main": [
+        [
+          {
+            "node": "Create Hot leads Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Copy to Leads": {
+      "main": [
+        [
+          {
+            "node": "Leads Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Copy to Hot leads": {
+      "main": [
+        [
+          {
+            "node": "Hot Leads Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Copy to Referrals": {
+      "main": [
+        [
+          {
+            "node": "Referrals Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Copy to Negatives": {
+      "main": [
+        [
+          {
+            "node": "Negatives Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Copy to Auto responders": {
+      "main": [
+        [
+          {
+            "node": "Auto Responder Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Copy to Spam": {
+      "main": [
+        [
+          {
+            "node": "Spam Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Hot leads Draft": {
+      "main": [
+        []
+      ]
+    },
+    "Spam Agent": {
+      "main": [
+        [
+          {
+            "node": "Create Auto Responders Draft1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "c76b9827-66d5-48c9-b39c-ef6adca9ae84",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

@@ -1,0 +1,441 @@
+{
+  "name": "WhatsApp AI Support Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## WhatsApp AI Support Agent\nAnswers customer questions on WhatsApp 24/7.\n\n- GPT agent with **order-status** and **product-search** tools\n- Remembers each customer's conversation (Postgres, keyed by phone)\n- Hands off to a human in Slack when the customer asks for one or is unhappy\n\n**Setup:** WhatsApp Business Cloud, OpenAI, Postgres and Slack credentials; point the two tools at your store API.",
+        "height": 260,
+        "width": 420,
+        "color": 7
+      },
+      "id": "5ce9f1b6-a010-5939-a328-40ed65bc8ab2",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "updates": [
+          "messages"
+        ]
+      },
+      "id": "24ad582b-bab0-58c5-b53c-0fb52d424dab",
+      "name": "WhatsApp Trigger",
+      "type": "n8n-nodes-base.whatsAppTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "41eabfa9-4a8a-5f63-9a6f-4306ffd39907",
+              "leftValue": "={{ $json.messages?.[0]?.type }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              },
+              "rightValue": "text"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1aac9c24-b771-5dd2-ab93-4b06c5f92c29",
+      "name": "Is it a text message?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7ce3ccc4-6a59-5ad3-9fe7-f5424d5ca564",
+              "name": "phone",
+              "value": "={{ $json.contacts[0].wa_id }}",
+              "type": "string"
+            },
+            {
+              "id": "954f6e08-1b7f-5371-97b0-30c0c9522781",
+              "name": "name",
+              "value": "={{ $json.contacts[0].profile.name }}",
+              "type": "string"
+            },
+            {
+              "id": "f3a39155-bb6e-553e-89df-efc04681e150",
+              "name": "text",
+              "value": "={{ $json.messages[0].text.body }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5ceb7e4d-8bde-55bb-8ff7-9710ac47030f",
+      "name": "Normalize message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.text }}",
+        "options": {
+          "systemMessage": "You are the customer-support assistant for an online store, chatting on WhatsApp with {{ $json.name }}.\n- Keep replies short (max 3 sentences), friendly and plain text (no markdown).\n- Use the order_status tool whenever the customer mentions an order; never guess order details.\n- Use the product_search tool for questions about products, stock or prices.\n- If the customer asks for a human, wants a refund over $100, or is clearly upset, start your reply with [HANDOFF] and tell them a teammate will join shortly.\n- If you don't know, say so and offer a human."
+        }
+      },
+      "id": "6ab69be9-4f18-5489-84d0-a6e602530778",
+      "name": "Support Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "id": "9c6ed616-5843-5872-8f99-ae74fe4b3bfb",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        555.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Normalize message').item.json.phone }}",
+        "tableName": "whatsapp_chat_history",
+        "contextWindowLength": 10
+      },
+      "id": "c96c5bc1-2cb7-5b6c-97eb-bc907751ba29",
+      "name": "Conversation Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        745.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Look up an order by its order number. Returns status, items and tracking link.",
+        "url": "https://api.your-store.example/orders/{orderId}",
+        "placeholderDefinitions": {
+          "values": [
+            {
+              "name": "orderId",
+              "description": "The order number the customer gave, digits only",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "id": "d7049723-05f5-5d50-80d6-df21d2c0992c",
+      "name": "Order Status Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        935.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Search the product catalogue. Returns name, price and stock for matching products.",
+        "url": "https://api.your-store.example/products",
+        "sendQuery": true,
+        "specifyQuery": "keypair",
+        "parametersQuery": {
+          "values": [
+            {
+              "name": "q",
+              "valueProvider": "modelRequired"
+            }
+          ]
+        }
+      },
+      "id": "340fe14f-be0a-5139-8182-c7d26f9738d3",
+      "name": "Product Search Tool",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1125.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "07760b5f-a8f9-5753-8aeb-7b18aff6f29c",
+              "leftValue": "={{ $json.output }}",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              },
+              "rightValue": "[HANDOFF]"
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bf4e686d-79d6-5ddd-9dd2-69c04021c207",
+      "name": "Needs a human?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Normalize message').item.json.phone }}",
+        "textBody": "={{ $json.output }}",
+        "additionalFields": {}
+      },
+      "id": "d3450424-65dc-50b0-a752-e9a83725415e",
+      "name": "Send AI reply",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        1400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Normalize message').item.json.phone }}",
+        "textBody": "={{ $json.output.replace('[HANDOFF]', '').trim() }}",
+        "additionalFields": {}
+      },
+      "id": "a3c1824d-f649-580f-9b59-db2ab93190b2",
+      "name": "Tell customer a human is coming",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#support"
+        },
+        "text": "=:rotating_light: *WhatsApp handoff* from {{ $('Normalize message').item.json.name }} (+{{ $('Normalize message').item.json.phone }})\n>{{ $('Normalize message').item.json.text }}",
+        "otherOptions": {}
+      },
+      "id": "480ceb8f-363c-5be4-8dcb-ccc8a72b7b8a",
+      "name": "Alert support team",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1400,
+        360
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "send",
+        "phoneNumberId": "YOUR_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $json.contacts[0].wa_id }}",
+        "textBody": "Thanks! I can only read text messages for now. Could you type your question?",
+        "additionalFields": {}
+      },
+      "id": "a1930432-5c68-55f5-930d-cca847a4ff82",
+      "name": "Ask for a text message",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [
+        560,
+        360
+      ]
+    }
+  ],
+  "connections": {
+    "WhatsApp Trigger": {
+      "main": [
+        [
+          {
+            "node": "Is it a text message?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is it a text message?": {
+      "main": [
+        [
+          {
+            "node": "Normalize message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ask for a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize message": {
+      "main": [
+        [
+          {
+            "node": "Support Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Support Agent": {
+      "main": [
+        [
+          {
+            "node": "Needs a human?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs a human?": {
+      "main": [
+        [
+          {
+            "node": "Alert support team",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send AI reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Alert support team": {
+      "main": [
+        [
+          {
+            "node": "Tell customer a human is coming",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Support Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Support Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Order Status Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Support Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Product Search Tool": {
+      "ai_tool": [
+        [
+          {
+            "node": "Support Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

@@ -1,0 +1,302 @@
+{
+  "name": "Invoice Processing with AI Extraction",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Invoice Processing\nWatches Gmail for invoices, reads the PDF, extracts the fields with AI and books them into a Google Sheet.\n\n- Validation step: anything without an invoice number or a positive total goes to manual review\n- Finance gets a Slack message either way\n\n**Setup:** Gmail, OpenAI, Google Sheets and Slack credentials; an `Invoices` sheet with matching columns.",
+        "height": 260,
+        "width": 420,
+        "color": 7
+      },
+      "id": "6acdab00-efe3-5b19-aa3b-44f9e708539c",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {
+          "q": "has:attachment filename:pdf (invoice OR receipt) newer_than:1d"
+        },
+        "options": {
+          "downloadAttachments": true
+        }
+      },
+      "id": "89dcaeb5-5cf8-57a7-8613-fb13c6607e59",
+      "name": "Invoice email received",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "attachment_0",
+        "options": {}
+      },
+      "id": "1971cfc9-d13c-5638-b2f0-ff65f53425d2",
+      "name": "Read PDF text",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "text": "={{ $json.text }}",
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"vendor\": {\n      \"type\": \"string\"\n    },\n    \"invoice_number\": {\n      \"type\": \"string\"\n    },\n    \"invoice_date\": {\n      \"type\": \"string\",\n      \"description\": \"YYYY-MM-DD\"\n    },\n    \"due_date\": {\n      \"type\": \"string\",\n      \"description\": \"YYYY-MM-DD or empty\"\n    },\n    \"currency\": {\n      \"type\": \"string\",\n      \"description\": \"ISO code, e.g. EUR\"\n    },\n    \"total_amount\": {\n      \"type\": \"number\"\n    },\n    \"line_items\": {\n      \"type\": \"string\",\n      \"description\": \"one-line summary of what was bought\"\n    }\n  },\n  \"required\": [\n    \"vendor\",\n    \"invoice_number\",\n    \"total_amount\",\n    \"currency\"\n  ]\n}",
+        "options": {}
+      },
+      "id": "dcd32d24-7a95-52dd-b3ed-fec5225df9ac",
+      "name": "Extract invoice fields",
+      "type": "@n8n/n8n-nodes-langchain.informationExtractor",
+      "typeVersion": 1,
+      "position": [
+        560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "id": "e6c1fc96-4f8d-5c66-b347-c45239e0e36b",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        560.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7880c646-1866-5bf0-b356-a34641d7a2d8",
+              "leftValue": "={{ $json.output.invoice_number }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "f0c382da-3503-59c3-a1f1-7de128c966df",
+              "leftValue": "={{ $json.output.total_amount }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5d83b7f9-263a-5e07-b8cd-e38a17557f85",
+      "name": "Looks valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "YOUR_SPREADSHEET_ID"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Invoices"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "vendor": "={{ $json.output.vendor }}",
+            "invoice_number": "={{ $json.output.invoice_number }}",
+            "invoice_date": "={{ $json.output.invoice_date }}",
+            "due_date": "={{ $json.output.due_date }}",
+            "currency": "={{ $json.output.currency }}",
+            "total": "={{ $json.output.total_amount }}",
+            "items": "={{ $json.output.line_items }}",
+            "email_from": "={{ $('Invoice email received').item.json.from.value[0].address }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "9355888a-2325-58bc-ab9a-4e1149397cfb",
+      "name": "Add to Invoices sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#finance"
+        },
+        "text": "=:receipt: Booked invoice *{{ $('Extract invoice fields').item.json.output.invoice_number }}* from {{ $('Extract invoice fields').item.json.output.vendor }}: {{ $('Extract invoice fields').item.json.output.total_amount }} {{ $('Extract invoice fields').item.json.output.currency }}, due {{ $('Extract invoice fields').item.json.output.due_date || 'n/a' }}",
+        "otherOptions": {}
+      },
+      "id": "30583e0b-e3a7-59b1-bbe7-7b1417738914",
+      "name": "Notify finance",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#finance"
+        },
+        "text": "=:warning: Couldn't read an invoice confidently - please check the email \"{{ $('Invoice email received').item.json.subject }}\" from {{ $('Invoice email received').item.json.from.value[0].address }}",
+        "otherOptions": {}
+      },
+      "id": "e777d15e-0163-59ec-af1b-6e4bf4e9d701",
+      "name": "Flag for manual review",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1120,
+        360
+      ]
+    }
+  ],
+  "connections": {
+    "Invoice email received": {
+      "main": [
+        [
+          {
+            "node": "Read PDF text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read PDF text": {
+      "main": [
+        [
+          {
+            "node": "Extract invoice fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract invoice fields": {
+      "main": [
+        [
+          {
+            "node": "Looks valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Looks valid?": {
+      "main": [
+        [
+          {
+            "node": "Add to Invoices sheet",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Flag for manual review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Invoices sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify finance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Extract invoice fields",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

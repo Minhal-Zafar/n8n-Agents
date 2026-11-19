@@ -1,0 +1,295 @@
+{
+  "name": "GitHub Pull Request AI Code Review",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## AI Code Review on Pull Requests\nOn every opened or updated PR: fetches the diff, skips lockfiles and huge files, asks GPT for a focused review (bugs, security, secrets, tests) and posts it as a PR review comment, then notifies Slack.\n\n**Setup:** GitHub (repo webhook access), OpenAI and Slack credentials.",
+        "height": 260,
+        "width": 420,
+        "color": 7
+      },
+      "id": "19e031a4-70dd-54a5-8e86-54eb5c4aecbd",
+      "name": "About this workflow",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -320
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "owner": {
+          "__rl": true,
+          "mode": "name",
+          "value": "YOUR_GITHUB_USER"
+        },
+        "repository": {
+          "__rl": true,
+          "mode": "name",
+          "value": "YOUR_REPO"
+        },
+        "events": [
+          "pull_request"
+        ],
+        "options": {}
+      },
+      "id": "180f4bdd-aaba-5c2e-b002-c198ac8e2984",
+      "name": "Pull request event",
+      "type": "n8n-nodes-base.githubTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2f402c83-df74-5725-9081-e42a45cb1c9d",
+              "leftValue": "={{ ['opened', 'synchronize', 'reopened'].includes($json.body.action) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              },
+              "rightValue": ""
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "0cb76b06-3e04-5293-8784-1bec8342a6a4",
+      "name": "Opened or updated?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.body.pull_request.url }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "githubApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github.v3.diff"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "id": "6034275f-e62d-5aa7-8abf-60073cb152aa",
+      "name": "Get PR diff",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        560,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Drop lockfiles/minified/generated files and cap size so the review stays focused and cheap.\nconst skip = /(package-lock\\.json|yarn\\.lock|pnpm-lock\\.yaml|\\.min\\.(js|css)|dist\\/|\\.snap)$/;\nconst files = String($json.data).split(/^diff --git /m).filter(Boolean)\n  .filter(f => !skip.test(f.split('\\n')[0].split(' b/')[1] || ''));\nlet diff = files.map(f => 'diff --git ' + f).join('');\nconst truncated = diff.length > 60000;\nreturn [{ json: { diff: diff.slice(0, 60000), files: files.length, truncated } }];"
+      },
+      "id": "2ba89f25-741e-5117-9360-59a29c8e4dda",
+      "name": "Trim diff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a senior engineer reviewing a pull request. Be specific and brief.\nPR: {{ $('Pull request event').item.json.body.pull_request.title }}\n\nReturn markdown with sections: **Summary** (2 lines), **Bugs & risks** (file:line + why), **Security** (incl. any committed secrets), **Tests to add**. Skip a section if it has nothing real. Never invent issues.\n{{ $json.truncated ? '(Diff truncated to the first 60k characters.)' : '' }}\n\n```diff\n{{ $json.diff }}\n```"
+      },
+      "id": "9fb925e6-2316-54c2-8709-fbfe15f15d7b",
+      "name": "Review the code",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        1120,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1"
+        },
+        "options": {}
+      },
+      "id": "49f91218-90d9-53ba-aa5b-97068061a616",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1120.0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "resource": "review",
+        "operation": "create",
+        "owner": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('Pull request event').item.json.body.repository.owner.login }}"
+        },
+        "repository": {
+          "__rl": true,
+          "mode": "name",
+          "value": "={{ $('Pull request event').item.json.body.repository.name }}"
+        },
+        "pullRequestNumber": "={{ $('Pull request event').item.json.body.number }}",
+        "event": "comment",
+        "body": "=### :robot: AI review\n{{ $json.text }}",
+        "additionalFields": {}
+      },
+      "id": "dc2e0ae3-7967-5226-b6f8-22b479a459e2",
+      "name": "Post review on PR",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [
+        1400,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "select": "channel",
+        "channelId": {
+          "__rl": true,
+          "mode": "name",
+          "value": "#engineering"
+        },
+        "text": "=:mag: AI review posted on <{{ $('Pull request event').item.json.body.pull_request.html_url }}|#{{ $('Pull request event').item.json.body.number }} {{ $('Pull request event').item.json.body.pull_request.title }}>",
+        "otherOptions": {}
+      },
+      "id": "9f153dfb-7797-5c39-af79-1f2e194e1aa4",
+      "name": "Notify Slack",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.3,
+      "position": [
+        1680,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Pull request event": {
+      "main": [
+        [
+          {
+            "node": "Opened or updated?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Opened or updated?": {
+      "main": [
+        [
+          {
+            "node": "Get PR diff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get PR diff": {
+      "main": [
+        [
+          {
+            "node": "Trim diff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trim diff": {
+      "main": [
+        [
+          {
+            "node": "Review the code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Review the code": {
+      "main": [
+        [
+          {
+            "node": "Post review on PR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post review on PR": {
+      "main": [
+        [
+          {
+            "node": "Notify Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Review the code",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [],
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
